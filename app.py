@@ -4,7 +4,7 @@ import mysql.connector
 from urllib.parse import urlparse, parse_qsl
 from functools import cached_property
 
-from http.server import BaseHTTPRequestHandler
+from http.server import CGIHTTPRequestHandler
 from http.server import HTTPServer
 
 db = mysql.connector.connect(
@@ -23,7 +23,7 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS users(
     PRIMARY KEY (UserId)
 );""")
 
-class WebRequestHandler(BaseHTTPRequestHandler):
+class WebRequestHandler(CGIHTTPRequestHandler):
 
     @cached_property
     def post_data(self):
@@ -34,9 +34,18 @@ class WebRequestHandler(BaseHTTPRequestHandler):
     def form_data(self):
         return dict(parse_qsl(self.post_data.decode("utf-8")))
 
+    def do_GET(self):
+        if self.path == "/register":
+            with open("register.html") as f:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(f.read().encode("utf-8"))
+
     def do_POST(self):
         if ("username" not in self.form_data.keys()) or ("password" not in self.form_data.keys()):
             self.send_error(400, "bad arguments", "there is no username or password")
+            return
 
         username = self.form_data["username"]
         password = self.form_data["password"]
@@ -45,13 +54,16 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
         if cursor.fetchone() is not None:
             self.send_error(400, "username already exists")
+            return
 
         cursor.execute(f"INSERT INTO users(UserName, UserPassword) VALUES ('{username}', '{password}');")
         db.commit()
 
-        self.send_response(200)
+        self.send_response(303)
+        self.send_header("Location", "http://0.0.0.0:8000/register")
         self.send_header("Content-Type", "application/json")
         self.end_headers()
+
         self.wfile.write(json.dumps({
             "status": "success",
             "data": username
@@ -66,7 +78,6 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             "data": message,
             "explain": explain
         }).encode("utf-8"))
-
 
 if __name__ == "__main__":
     server = HTTPServer(("0.0.0.0", 8000), WebRequestHandler)
