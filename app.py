@@ -4,7 +4,7 @@ import mysql.connector
 from urllib.parse import urlparse, parse_qsl
 from functools import cached_property
 
-from http.server import CGIHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from http.cookies import SimpleCookie
 
 db = mysql.connector.connect(
@@ -23,7 +23,7 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS users(
     PRIMARY KEY (UserId)
 );""")
 
-class WebRequestHandler(CGIHTTPRequestHandler):
+class WebRequestHandler(BaseHTTPRequestHandler):
 
     @cached_property
     def post_data(self):
@@ -43,24 +43,43 @@ class WebRequestHandler(CGIHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            self.load_page("index.html")
+            self.load_page("src/index.html")
+
         elif self.path == "/register":
-            self.load_page("register.html")
+            self.load_page("src/register.html")
+
+        elif self.path == "/login":
+            self.load_page("src/login.html")
+
+        elif self.path.startswith("/login/"):
+            self.load_page("src/success.html")
 
 
     def do_POST(self):
-        status, data = self.verified_signup_data()
+        print(self.path)
+        if self.path == "/register":
+            status, data = self.verified_signup_data()
 
-        if status == False:
-            error = data
-            self.load_error(400, error)
-            return
+            if status == False:
+                error = data
+                self.load_error(400, error)
+                return
 
-        username, password = data
+            username, password = data
 
-        self.create_user(username, password)
+            self.create_user(username, password)
 
-        self.make_redirect("/register")
+            self.make_redirect("/register")
+        elif self.path == "/login":
+            username = self.form_data["username"]
+            password = self.form_data["password"]
+
+            cursor.execute(f"SELECT * FROM users WHERE UserName = '{username}' AND UserPassword = '{password}'")
+
+            if cursor.fetchone() is None:
+                self.load_error(401, "Invalid username or password")
+            else:
+                self.make_redirect(f"/login/{username}")
 
 
     def make_redirect(self, address):
@@ -71,21 +90,21 @@ class WebRequestHandler(CGIHTTPRequestHandler):
     
     def load_error(self, code, message):
         error = f"Error: {message}."
-        file = self.insert_to_page("error.html", error)
+        file = self.insert_to_page("src/error.html", error)
 
-        self.load(code, "error.html", file)
+        self.load_http(code, file)
 
 
     def load_page(self, page, data=""):
         file = self.insert_to_page(page, data)
-        self.load(200, page, file)
+        self.load_http(200, file)
 
 
-    def load(self, code, page, file):
+    def load_http(self, code, data):
         self.send_response(code)
         self.send_header("Content-Type", "text/html")
         self.end_headers()
-        self.wfile.write(file.encode("utf-8"))
+        self.wfile.write(data.encode("utf-8"))
 
 
     def insert_to_page(self, page, data):
@@ -104,7 +123,7 @@ class WebRequestHandler(CGIHTTPRequestHandler):
         password = self.form_data["password"]
         
         if not self.unique_username(username):
-            return False, "Invalid username: {username} already exists"
+            return False, f"Invalid username: {username} already exists"
 
         return True, (username, password)
 
