@@ -1,4 +1,5 @@
 import os
+from base64 import b64encode, b64decode
 import json
 import mysql.connector
 from urllib.parse import urlparse, parse_qsl
@@ -51,12 +52,17 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         elif self.path == "/login":
             self.load_page("src/login.html")
 
-        elif self.path.startswith("/login/"):
-            self.load_page("src/success.html")
+        elif self.path == "/login/index":
+            if "token" not in self.cookies.keys():
+                self.load_error(401, "Authorization is needed")
+                return
 
+            username = self.get_username_from_token()
+
+            self.load_page("src/success.html", data=username) 
+            
 
     def do_POST(self):
-        print(self.path)
         if self.path == "/register":
             status, data = self.verified_signup_data()
 
@@ -70,41 +76,56 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             self.create_user(username, password)
 
             self.make_redirect("/register")
+
         elif self.path == "/login":
-            username = self.form_data["username"]
-            password = self.form_data["password"]
+            status, data = self.verified_login_data()
+            if status == False:
+                error = data
+                self.load_error(401, error)
+                return
 
-            cursor.execute(f"SELECT * FROM users WHERE UserName = '{username}' AND UserPassword = '{password}'")
+            username, password = data
 
-            if cursor.fetchone() is None:
-                self.load_error(401, "Invalid username or password")
-            else:
-                self.make_redirect(f"/login/{username}")
+            token = b64encode(f"{username}:{password}".encode()).decode()
+
+            self.send_response(302)
+            self.send_header("Location", "/login/index")
+            self.send_header("Set-Cookie", f"token={token}")
+            self.end_headers()
 
 
-    def make_redirect(self, address):
+    def get_username_from_token(self):
+        token = self.cookies["token"].value.lstrip("token=")
+        return b64decode(token.encode()).decode().split(":")[0]
+    
+
+    def make_redirect(self, address, headers={}):
         self.send_response(303)
         self.send_header("Location", address)
+        for header, value in headers.items():
+            self.send_header(header, value)
         self.end_headers()
 
     
-    def load_error(self, code, message):
+    def load_error(self, code, message, headers={}):
         error = f"Error: {message}."
         file = self.insert_to_page("src/error.html", error)
 
-        self.load_http(code, file)
+        self.load_http(code, file, headers)
 
 
-    def load_page(self, page, data=""):
+    def load_page(self, page, data="", headers={}):
         file = self.insert_to_page(page, data)
-        self.load_http(200, file)
+        self.load_http(200, file, headers)
 
 
-    def load_http(self, code, data):
+    def load_http(self, code, file, headers):
         self.send_response(code)
         self.send_header("Content-Type", "text/html")
+        for header, value in headers.items():
+            self.send_header(header, value)
         self.end_headers()
-        self.wfile.write(data.encode("utf-8"))
+        self.wfile.write(file.encode("utf-8"))
 
 
     def insert_to_page(self, page, data):
@@ -113,17 +134,42 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
         return file
 
+    def verified_login_data(self):
+        status, data = self.userdata_is_present()
+        if status == False:
+            error = data
+            return False, error
+
+        username, password = data
+
+        cursor.execute(f"SELECT * FROM users WHERE UserName = '{username}' AND UserPassword = '{password}'")
+
+        if cursor.fetchone() is None:
+            return False, "Invalid username or password"
+        return True, (username, password)
 
     def verified_signup_data(self):
+        status, data = userdata_is_present()
+
+        if status == False:
+            error = data
+            return False, error
+
+        username, password = data
+        
+        if not self.unique_username(username):
+            return False, f"Invalid username: {username} already exists"
+
+        return True, (username, password)
+
+
+    def userdata_is_present(self):
         if ("username" not in self.form_data.keys()) or ("password" not in self.form_data.keys()):
             error = "bad arguments: invalid username or password"
             return False, error
 
         username = self.form_data["username"]
         password = self.form_data["password"]
-        
-        if not self.unique_username(username):
-            return False, f"Invalid username: {username} already exists"
 
         return True, (username, password)
 
