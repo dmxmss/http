@@ -5,7 +5,7 @@ import mysql.connector
 from urllib.parse import urlparse, parse_qsl
 from functools import cached_property
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 
 db = mysql.connector.connect(
@@ -149,7 +149,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         return True, (username, password)
 
     def verified_signup_data(self):
-        status, data = userdata_is_present()
+        status, data = self.userdata_is_present()
 
         if status == False:
             error = data
@@ -186,7 +186,3 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         cursor.execute(f"INSERT INTO users(UserName, UserPassword) VALUES ('{username}', '{password}');")
         db.commit()
 
-
-if __name__ == "__main__":
-    server = HTTPServer(("0.0.0.0", 8000), WebRequestHandler)
-    server.serve_forever()

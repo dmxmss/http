@@ -1,2 +1,5 @@
 venv/
 .misc
+__pycache__/
+cert.pem
+private.key
